@@ -37,6 +37,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/stateless"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/feedlat"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
@@ -937,6 +938,9 @@ func (s *ExecutionEngine) createBlockFromNextMessage(msg *arbostypes.MessageWith
 	if currentHeader == nil {
 		return nil, nil, nil, errors.New("failed to get current block header")
 	}
+	if !isMsgForPrefetch {
+		feedlat.StampExecStart(currentHeader.Number.Uint64()+1, time.Now())
+	}
 
 	currentBlock := s.bc.GetBlock(currentHeader.Hash(), currentHeader.Number.Uint64())
 	if currentBlock == nil {
@@ -1053,6 +1057,9 @@ func (s *ExecutionEngine) createBlockFromNextMessage(msg *arbostypes.MessageWith
 		s.exposeMultiGas,
 	)
 
+	if err == nil && block != nil && !isMsgForPrefetch {
+		feedlat.StampExecDone(block.Hash(), block.NumberU64(), time.Now())
+	}
 	return block, statedb, receipts, err
 }
 

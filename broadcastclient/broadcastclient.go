@@ -23,6 +23,7 @@ import (
 	"github.com/gobwas/ws/wsflate"
 	"github.com/spf13/pflag"
 
+	"github.com/ethereum/go-ethereum/feedlat"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 
@@ -389,6 +390,7 @@ func (bc *BroadcastClient) startBackgroundReader(earlyFrameData io.Reader) {
 			var err error
 			config := bc.config()
 			msg, op, err = wsbroadcastserver.ReadData(ctx, bc.conn, earlyFrameData, config.Timeout, ws.StateClientSide, bc.compression, flateReader)
+			frameAt := time.Now()
 			if err != nil {
 				if bc.isShuttingDown() {
 					return
@@ -468,6 +470,9 @@ func (bc *BroadcastClient) startBackgroundReader(earlyFrameData io.Reader) {
 								continue
 							}
 
+							if message.BlockHash != nil {
+								feedlat.StampFeed(*message.BlockHash, frameAt)
+							}
 							err := bc.isValidSignature(ctx, message)
 							if err != nil {
 								log.Error("error validating feed signature", "error", err, "sequence number", message.SequenceNumber)
@@ -481,12 +486,22 @@ func (bc *BroadcastClient) startBackgroundReader(earlyFrameData io.Reader) {
 							log.Error("error validating one or more feed signatures, skipping the message")
 							continue
 						}
+						for _, m := range res.Messages {
+							if m != nil && m.BlockHash != nil {
+								feedlat.StampVerified(*m.BlockHash, time.Now())
+							}
+						}
 						if err := bc.txStreamer.AddBroadcastMessages(res.Messages); err != nil {
 							if errors.Is(err, TransactionStreamerBlockCreationStopped) {
 								log.Info("stopping block creation in broadcast client because transaction streamer has stopped")
 								return
 							}
 							log.Error("Error adding message from Sequencer Feed", "err", err)
+						}
+						for _, m := range res.Messages {
+							if m != nil && m.BlockHash != nil {
+								feedlat.StampStreamed(*m.BlockHash, time.Now())
+							}
 						}
 					}
 					if res.ConfirmedSequenceNumberMessage != nil && bc.confirmedSequenceNumberListener != nil {
